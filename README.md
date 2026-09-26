@@ -22,9 +22,11 @@ Target market: product companies, SaaS, enterprise-architecture teams — all fo
   **self-invocation breaks proxy-based AOP** (the classic gotcha).
 
 ### 2. Dynamic filtering done right
-- A complex search endpoint via **JPA Criteria API / Specifications** — composable predicates, no
-  string concatenation and no 15 bespoke `@Query` methods.
-- **Keyset (cursor) pagination**, not `OFFSET` — because `OFFSET 1000000` scans a million rows.
+- A search endpoint whose query is **assembled from the filters actually supplied** — one clause per
+  present filter, values always bound (no string concatenation, no 15 bespoke `@Query` methods).
+- **Keyset (cursor) pagination**, not `OFFSET` — using a PostgreSQL **row-value** cursor
+  `(created_at, id) < (:c, :id)` so each page is an index range scan. Measured: deep-page p95
+  **121 ms → 0.069 ms** vs `OFFSET` (~1,750×), constant time at any depth.
   → [`docs/SPECIFICATIONS-AND-KEYSET.md`](docs/SPECIFICATIONS-AND-KEYSET.md)
 
 ### 3. Production security & observability
@@ -46,9 +48,11 @@ also verified against real Postgres/Redis and a live Keycloak locally):*
   reflection**, deduplicating repeated `POST`s via a Redis `SET NX` lock (same key → one execution,
   same cached response) and writing **async** audit rows that diff any entity's fields generically
   and carry the request's `traceId` across the thread hop.
-- Built composable filtering with **JPA Specifications** and **keyset (cursor) pagination** instead
-  of `OFFSET`, proven to return every row exactly once across pages (no gaps/dupes) with a strict
-  `(created_at, id)` total order.
+- Built dynamic filtering (query assembled from supplied filters, values bound) and **keyset (cursor)
+  pagination** with a PostgreSQL **row-value** cursor — measured **~1,750× faster deep-page p95**
+  than `OFFSET` on 1M rows (121 ms → 0.069 ms), constant time at any depth, every row returned
+  exactly once. (Benchmarking caught that the Criteria-API `OR`-form keyset silently regressed to a
+  full sort — the reason it's built with row-value comparison.)
 - Secured a **multi-tenant** API as an OAuth2/JWT **resource server**: the tenant is a signed token
   claim (not a request parameter), enforced end-to-end — verified with a real **Keycloak**-issued
   token (`201`, tenant derived from the claim) and `401` without one, plus cross-tenant access
@@ -56,8 +60,9 @@ also verified against real Postgres/Redis and a live Keycloak locally):*
 - Full **Testcontainers** integration coverage — real Postgres + Redis + Keycloak, no H2, no mocks
   at the DB or auth boundary — with the proxy self-invocation gotcha documented.
 
-*To fill in once benchmarked (see [`docs/SPECIFICATIONS-AND-KEYSET.md`](docs/SPECIFICATIONS-AND-KEYSET.md)):*
-deep-page p95, `OFFSET` vs keyset, on a large seeded table.
+*Measured (see [`docs/SPECIFICATIONS-AND-KEYSET.md`](docs/SPECIFICATIONS-AND-KEYSET.md)):* on 1M rows,
+deep-page p95 is 121 ms for `OFFSET` (scans 1M rows) vs 0.069 ms for keyset (scans ~20) — constant
+time at any depth.
 
 ## Run it
 
