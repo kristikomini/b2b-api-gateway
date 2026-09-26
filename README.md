@@ -38,20 +38,42 @@ Target market: product companies, SaaS, enterprise-architecture teams — all fo
 - **Testcontainers** spinning up real **PostgreSQL + Redis + Keycloak** during `mvn verify` — no
   H2 hiding Postgres-specific behaviour.
 
-## What this demonstrates (CV bullets — fill numbers after building)
+## What this demonstrates (CV bullets)
 
-- Built custom `@IdempotentRequest` and `@AuditTrail` annotations with Spring AOP + Java
-  reflection/dynamic proxies, deduplicating duplicate `POST`s via Redis and capturing async audit
-  trails across any entity type.
-- Replaced `OFFSET` pagination with keyset pagination on a `<N>`-row table, cutting deep-page p95
-  from `<N>` ms to `<N>` ms; built composable filtering with JPA Specifications.
-- Secured a multi-tenant API with OAuth2/JWT (Keycloak) and full Testcontainers integration
-  coverage (Postgres + Redis + Keycloak) — no H2, no mocks at the DB boundary.
+*Proven by tests in this repo (Postgres + Redis + Keycloak via Testcontainers in CI; core flows
+also verified against real Postgres/Redis and a live Keycloak locally):*
+- Built custom `@IdempotentRequest` and `@AuditTrail` annotations with Spring **AOP + Java
+  reflection**, deduplicating repeated `POST`s via a Redis `SET NX` lock (same key → one execution,
+  same cached response) and writing **async** audit rows that diff any entity's fields generically
+  and carry the request's `traceId` across the thread hop.
+- Built composable filtering with **JPA Specifications** and **keyset (cursor) pagination** instead
+  of `OFFSET`, proven to return every row exactly once across pages (no gaps/dupes) with a strict
+  `(created_at, id)` total order.
+- Secured a **multi-tenant** API as an OAuth2/JWT **resource server**: the tenant is a signed token
+  claim (not a request parameter), enforced end-to-end — verified with a real **Keycloak**-issued
+  token (`201`, tenant derived from the claim) and `401` without one, plus cross-tenant access
+  returning empty/`404`.
+- Full **Testcontainers** integration coverage — real Postgres + Redis + Keycloak, no H2, no mocks
+  at the DB or auth boundary — with the proxy self-invocation gotcha documented.
+
+*To fill in once benchmarked (see [`docs/SPECIFICATIONS-AND-KEYSET.md`](docs/SPECIFICATIONS-AND-KEYSET.md)):*
+deep-page p95, `OFFSET` vs keyset, on a large seeded table.
 
 ## Run it
 
 ```bash
-docker compose up   # app + postgres + redis + keycloak
+docker compose up --build   # app + postgres + redis + keycloak (realm auto-imported)
+```
+
+Get a token from Keycloak (published on `:8081`), then call the API with it:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8081/realms/b2b/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=b2b-api -d username=acme-user -d password=password \
+  | jq -r .access_token)
+curl -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: k1" \
+  -H 'Content-Type: application/json' -d '{"customerRef":"C1","amount":10.00}' \
+  http://localhost:8080/orders
 ```
 
 ## Course topics exercised

@@ -1,0 +1,41 @@
+{
+  "realm": "b2b",
+  "enabled": true,
+  "accessTokenLifespan": 3600,
+  "clients": [
+    {
+      "clientId": "b2b-api",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant",
+            "claim.name": "tenant",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "acme-user",
+      "enabled": true,
+      "email": "acme-user@example.com",
+      "emailVerified": true,
+      "firstName": "Acme",
+      "lastName": "User",
+      "attributes": { "tenant": ["acme"] },
+      "credentials": [ { "type": "password", "value": "password", "temporary": false } ]
+    }
+  ]
+}

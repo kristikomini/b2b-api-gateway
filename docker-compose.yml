@@ -1,3 +1,9 @@
+# `docker compose up --build` — the app + Postgres + Redis + Keycloak.
+#
+# Keycloak is pinned to the frontend URL http://keycloak:8080 (KC_HOSTNAME) so the token
+# issuer matches what the app validates against on the shared Docker network. To call the API
+# from your host you first get a token from Keycloak (published on :8081), then send it with
+# `Authorization: Bearer <token>`.
 services:
   postgres:
     image: postgres:16-alpine
@@ -19,7 +25,25 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Fix the issuer so tokens' `iss` equals what the app validates on the compose network.
+      KC_HOSTNAME: http://keycloak:8080
+    volumes:
+      - ./ops/keycloak:/opt/keycloak/data/import:ro
     ports: [ "8081:8080" ]
-    # TODO(fill): mount ./ops/keycloak/realm-export.json into /opt/keycloak/data/import
 
-  # TODO(fill): b2b-api-gateway app — build: .  depends_on: [ postgres, redis, keycloak ]
+  b2b-api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/b2b
+      SPRING_DATASOURCE_USERNAME: app
+      SPRING_DATASOURCE_PASSWORD: app
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/b2b
+    ports: [ "8080:8080" ]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+      keycloak: { condition: service_started }
